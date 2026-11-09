@@ -1,0 +1,37 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Check for known vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
+      - name: Build
+        run: |
+          for target in amd64:x86_64 arm64:aarch64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="${target%:*}" \
+              go build -trimpath -ldflags="-s -w" -o "$RUNNER_TEMP/dist/wgadm-linux-${target#*:}" .
+          done
+          (cd "$RUNNER_TEMP/dist" && sha256sum wgadm-linux-* > SHA256SUMS)
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "$RUNNER_TEMP"/dist/* --generate-notes
